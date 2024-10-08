@@ -12,8 +12,6 @@ import streamlit.components.v1 as components
 
 st.set_page_config(layout="wide", page_title="Cities")
 
-google_map_api_key = st.secrets["google_map_api_key"]
-
 _ = """
 ##### 引っ越し先の希望事項
  - 共同住宅（コンド、マンション）よりも一軒家がいいね

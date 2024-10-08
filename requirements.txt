@@ -1,1 +1,9 @@
 streamlit
+pandas
+os
+pydeck
+re
+numpy
+shapely
+ast
+requests

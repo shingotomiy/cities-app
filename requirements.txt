@@ -1,7 +1,6 @@
 streamlit
 pandas
 pydeck
-re
 numpy
 shapely
 ast

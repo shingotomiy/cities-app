@@ -3,5 +3,4 @@ pandas
 pydeck
 numpy
 shapely
-ast
 requests

@@ -1,0 +1,408 @@
+<html>
+
+<body>
+    <style>
+        
+        
+        #map_google {
+            height: 100%;
+            width: 100%;
+            position: relative
+        }
+        #myinput {
+            width: -webkit-fill-available !important;
+            font-size: xxx-large !important;
+        }
+        
+        /* HTML marker styles */
+        .school-name {
+            font-size: 14px;         
+        }
+        
+        .school-name::after {
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 100%;
+            transform: translate(-50%, 0);
+            width: 0;
+            height: 0;
+            border-left: 2px solid transparent;
+            border-right: 2px solid transparent;
+            border-top: 8px solid black;
+        }
+        
+        
+    </style>
+    <!-- Set up your HTML here -->
+    <input id="myinput" value="" />
+    <!--The div element for the map -->
+    <div id="map_google"></div>
+    
+    <!-- prettier-ignore -->
+    <script>(g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})
+        ({key: "AIzaSyBcAGp1w4qYE45ADHvJtGxBNHsy0_bywVM", v: "weekly"});</script>
+        <script
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBcAGp1w4qYE45ADHvJtGxBNHsy0_bywVM&callback=initMap&v=weekly"
+        defer
+      ></script>
+        
+        
+        <script>
+            // ----------------------------------------------------
+            // Just copy/paste these functions as-is:
+            
+            function sendMessageToStreamlitClient(type, data) {
+                var outData = Object.assign({
+                    isStreamlitMessage: true,
+                    type: type,
+                }, data);
+                window.parent.postMessage(outData, "*");
+            }
+            
+            function init() {
+                sendMessageToStreamlitClient("streamlit:componentReady", {apiVersion: 1});
+            }
+            
+            function setFrameHeight(height) {
+                sendMessageToStreamlitClient("streamlit:setFrameHeight", {height: height});
+            }
+            
+            // The `data` argument can be any JSON-serializable value.
+            function sendDataToPython(data) {
+                sendMessageToStreamlitClient("streamlit:setComponentValue", data);
+            }
+            
+            // ----------------------------------------------------
+            // Now modify this part of the code to fit your needs:
+            
+            let myInput = document.getElementById("myinput");
+            let mySchools = []
+            let globalMapZoom = 11
+            let globalMapCenter = { lat: 51.0447, lng: -114.0719 } // Center of calgary
+            if (!localStorage.getItem("mapCenter")) {
+              localStorage.setItem("mapCenter", JSON.stringify(globalMapCenter));
+            }
+
+            if (!localStorage.getItem("mapZoom")) {
+              localStorage.setItem("mapZoom", globalMapZoom);
+            }
+            
+            /////////////////////////////From here ----------------------------------------------------
+            
+            
+            // data is any JSON-serializable value you sent from Python,
+            // and it's already deserialized for you.
+            function onDataFromPython(event) {
+                if (event.data.type !== "streamlit:render") return;
+                //        myInput.value = event.data.args.my_input_value;  
+                mySchools = event.data.args.my_schools_value;// Access values sent from Python here!
+                blankMap = event.data.args.show_blank_map;
+                
+                console.log(myInput.value)
+                console.log(mySchools)
+                if(mySchools != undefined){
+                    drawMap(mySchools);
+                }
+                if(blankMap != undefined){
+                    drawListenerMap();
+                }      
+                
+            }
+            
+            
+            async function drawListenerMap() {
+
+                let listenerMap;
+                let geocoder = new google.maps.Geocoder();
+                myInput.value = '住所を入力するか、地図上をクリック：'
+                let { Map } = await google.maps.importLibrary("maps");
+                let { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
+                
+                // The map
+                listenerMap = new Map(document.getElementById("map_google"), {
+                    zoom: parseInt(localStorage.getItem("mapZoom")),
+                    center: JSON.parse(localStorage.getItem("mapCenter")),
+                    mapId: "LISTENER_MAP_ID",
+                    mapTypeId: 'roadmap',
+                    zoomControl: true,
+                    zoomControlOptions: {
+                        position: google.maps.ControlPosition.LEFT_TOP
+                    }
+                    
+                });
+
+                listenerMap.addListener("center_changed", (param) => {
+                  //console.log(listenerMap.getCenter())
+                  globalMapCenter = { lat: listenerMap.getCenter().lat(), lng: listenerMap.getCenter().lng() }
+                  localStorage.setItem("mapCenter", JSON.stringify(globalMapCenter));
+                });
+
+                listenerMap.addListener("zoom_changed", (param) => {
+                  //console.log(listenerMap.getZoom())
+                  globalMapZoom = listenerMap.getZoom();
+                  localStorage.setItem("mapZoom", globalMapZoom);
+                });
+
+                let latestMarker = null;
+                let currentAddress = '';
+
+                listenerMap.addListener("click", (param) => {
+                    if (latestMarker !== null) {
+                        latestMarker.setMap(null);
+                    }
+                    
+                    latestMarker = new AdvancedMarkerElement({
+                        map: listenerMap,
+                        position: { lat: param.latLng.lat(), lng: param.latLng.lng()},
+                        
+                    });
+                    localStorage.setItem("mapClickedPoint", JSON.stringify({ lat: param.latLng.lat(), lng: param.latLng.lng()}));
+
+                    function reverseGeocode(lat, lng) {
+                      latlng = {
+                          lat: lat,
+                          lng: lng,
+                        };
+
+                      geocoder
+                        .geocode({ location: latlng })
+                        .then((response) => {
+                          if (response.results[0]) {
+                            console.log(response.results[0].formatted_address);
+                            myInput.value = response.results[0].formatted_address;
+                            currentAddress = myInput.value;
+
+                          } else {
+                            window.alert("No address found");
+                          }
+                        })
+                        .catch((e) => window.alert("Geocoder failed due to: " + e));
+                    }
+                    reverseGeocode(param.latLng.lat(), param.latLng.lng());
+
+                    
+                    sendDataToPython({
+                        value: [param.latLng.lat().toFixed(6), param.latLng.lng().toFixed(6)],
+                        dataType: "json",
+                    });
+                });
+                myInput.addEventListener("change", function() {
+                  if(myInput.value != currentAddress){
+                    var address = myInput.value;
+                    geocoder.geocode( { 'address': address}, function(results, status) {
+                      if (status == 'OK') {
+                        listenerMap.setCenter(results[0].geometry.location);
+                        if (latestMarker !== null) {
+                            latestMarker.setMap(null);
+                        }
+                        
+                        latestMarker = new AdvancedMarkerElement({
+                            map: listenerMap,
+                            position: results[0].geometry.location                            
+                        });
+                        console.log(results[0].geometry.location)
+                        localStorage.setItem("mapClickedPoint", JSON.stringify(results[0].geometry.location));
+
+                        sendDataToPython({
+                            value: [results[0].geometry.location.lat().toFixed(6), results[0].geometry.location.lng().toFixed(6)],
+                            dataType: "json",
+                        });
+
+                      } else {
+                        alert('Geocode was not successful for the following reason: ' + status);
+                      }
+                    });
+                  }
+
+                })
+
+                setFrameHeight(1200);
+                
+            }
+            async function drawMap(schools) {
+                setFrameHeight(1200);
+                myInput.hidden = true
+                let map;
+                
+                // Request needed libraries.
+                //@ts-ignore
+                let { Map } = await google.maps.importLibrary("maps");
+                let { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
+                
+                
+
+                // The map
+                map = new Map(document.getElementById("map_google"), {
+                    zoom: parseInt(localStorage.getItem("mapZoom")),
+                    center: JSON.parse(localStorage.getItem("mapCenter")),
+                    mapId: "DEMO_MAP_ID",
+                    mapTypeId: 'roadmap',
+                    zoomControl: true,
+                    zoomControlOptions: {
+                        position: google.maps.ControlPosition.LEFT_TOP
+                    }
+                    
+                });
+                if (localStorage.getItem("mapClickedPoint")) {
+                  console.log(JSON.parse(localStorage.getItem("mapClickedPoint")))
+                  mapClickedPointMarker = new AdvancedMarkerElement({
+                        map: map,
+                        position: JSON.parse(localStorage.getItem("mapClickedPoint")),                        
+                    });
+
+                }
+                map.addListener("center_changed", (param) => {
+                  //console.log(listenerMap.getCenter())
+                  globalMapCenter = { lat: map.getCenter().lat(), lng: map.getCenter().lng() }
+                  localStorage.setItem("mapCenter", JSON.stringify(globalMapCenter));
+                });
+
+                map.addListener("zoom_changed", (param) => {
+                  //console.log(listenerMap.getZoom())
+                  globalMapZoom = map.getZoom();
+                  localStorage.setItem("mapZoom", globalMapZoom);
+                });
+
+                const bounds = new google.maps.LatLngBounds();
+                
+                
+                schools.forEach(school => {
+                    
+                    
+                    const position = { lat: school.lat, lng: school.lng};
+                    
+                    
+                    
+                    const schoolName = document.createElement("div");
+                    schoolName.className = "school-name";
+                    schoolName.textContent = school.title;
+                    
+                    
+                    // The marker
+                    const marker = new AdvancedMarkerElement({
+                        map: map,
+                        position: position,
+                        content: schoolName,
+                        gmpClickable: true,
+                    });
+                    
+                    marker.addListener("click", ({ domEvent, latLng }) => {
+                        const { target } = domEvent;
+                        window.open(school.url)          
+                    });
+
+                    bounds.extend(position);
+                    
+                    
+                    
+                    
+                    function convertToCoordinates(dataString) {
+                        //console.log(dataString)
+                        // Split the data string by comma to get each coordinate set
+                        let coordinatePairs = dataString.split(',');
+                        
+                        // Create an array to hold the coordinates
+                        let coordinates = [];
+                        
+                        // Loop through each pair and extract the longitude and latitude
+                        for (let i = 0; i < coordinatePairs.length; i++) {
+                            let pair = coordinatePairs[i].trim().split(' '); // Split by space and trim extra spaces
+                            
+                            // Extract longitude (first value) and latitude (second value)
+                            let lng = parseFloat(pair[0]);
+                            let lat = parseFloat(pair[1]);
+                            
+                            // Push the result as an object into the coordinates array
+                            coordinates.push({ lat: lat, lng: lng });
+                        }
+                        
+                        return coordinates;
+                    }
+                    
+                    if (school.catchment && school.catchment.length > 0){
+                        try{
+                            school.catchment = JSON.parse(school.catchment.replace(/'/g,'"'))
+                        }catch(e){
+                            school.catchment = []
+                        }
+                        
+                        
+                        for(var i = 0;i<school.catchment.length; i++){
+                            let coordinates = convertToCoordinates(school.catchment[i]);
+                            var polygonoptions = {
+                                paths: coordinates,
+                                strokeColor: "#0000FF",
+                                strokeOpacity: 0.5,
+                                strokeWeight: 2,
+                                fillColor: "#0000FF",
+                                fillOpacity: 0.1
+                            };
+                            
+                            var polygon = new window.google.maps.Polygon(polygonoptions);
+                            polygon.setMap(map);
+                            
+                        }
+                    }else{
+                        console.log("Catchment data is missing for "+ school.title)
+                    }
+                    
+                    if(school.walk && school.walk.length >0){
+                        try{
+                            school.walk = JSON.parse(school.walk.replace(/'/g,'"'))
+                        }catch(e){
+                            school.walk = []
+                        }
+                        
+                        
+                        for(var j =0; j<school.walk.length;j++){
+                            
+                            let coordinates_walk = convertToCoordinates(school.walk[j]);
+                            var polygonoptions_walk = {
+                                paths: coordinates_walk,
+                                strokeColor: "#FF0000",
+                                strokeOpacity: 0.5,
+                                strokeWeight: 2,
+                                fillColor: "#FF0000",
+                                fillOpacity: 0.1
+                            };
+                            
+                            
+                            var polygon_walk = new window.google.maps.Polygon(polygonoptions_walk);
+                            polygon_walk.setMap(map);
+
+                            
+                        }        
+                        
+                    }else{
+                        console.log("Walk data is missing for " + school.title)
+                    }
+                    
+                });
+                //map.fitBounds(bounds);
+                
+            }
+            
+            
+            
+            
+            
+            /////////////////////////////Til here ----------------------------------------------------
+            
+            // Hook things up!
+            window.addEventListener("message", onDataFromPython);
+            init();
+            
+            // Hack to autoset the iframe height.
+            window.addEventListener("load", function() {
+                window.setTimeout(function() {
+                    setFrameHeight(document.documentElement.clientHeight)
+                }, 0);
+            });
+            
+            // Optionally, if the automatic height computation fails you, give this component a height manually
+            // by commenting out below:
+            setFrameHeight(1200);
+        </script>
+    </body>
+  </html>
